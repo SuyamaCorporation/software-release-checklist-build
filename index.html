@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Software Release Deployment Checklist Build</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen p-4">
+  <div class="max-w-2xl mx-auto">
+    <header class="mb-4 flex flex-wrap gap-3 items-start justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-800">Release Deployment Checklist</h1>
+        <p class="text-gray-500 text-sm mt-1">Pre-deployment checklist with progress tracking</p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="resetAll()" class="text-sm border border-gray-300 text-gray-500 hover:bg-gray-100 px-3 py-1.5 rounded-lg transition">Reset</button>
+        <button onclick="exportMd()" class="text-sm bg-gray-800 hover:bg-gray-900 text-white px-3 py-1.5 rounded-lg transition">Export MD</button>
+      </div>
+    </header>
+
+    <!-- Progress -->
+    <section class="bg-white rounded-xl shadow p-4 mb-4" aria-live="polite">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-sm font-semibold text-gray-700">Overall Completion</span>
+        <span id="pct-label" class="text-sm font-bold text-indigo-600">0%</span>
+      </div>
+      <div class="w-full bg-gray-100 rounded-full h-4 overflow-hidden" role="progressbar" aria-label="Deployment checklist completion">
+        <div id="progress-bar" class="h-4 rounded-full transition-all duration-300 bg-indigo-500" style="width:0%"></div>
+      </div>
+      <p id="status-msg" class="text-xs text-center text-gray-500 mt-2"></p>
+    </section>
+
+    <!-- Checklist sections -->
+    <div id="sections" class="space-y-4 mb-4"></div>
+
+    <!-- Add custom item -->
+    <div class="bg-white rounded-xl shadow p-4">
+      <h2 class="text-sm font-semibold text-gray-700 mb-3">Add Custom Item</h2>
+      <div class="flex gap-2">
+        <select id="custom-section" class="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" aria-label="Target section for custom item"></select>
+        <input id="custom-text" type="text" placeholder="Custom checklist item..."
+          class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          aria-label="Custom item text" />
+        <button onclick="addCustom()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-3 py-2 rounded-lg transition" aria-label="Add custom item">Add</button>
+      </div>
+    </div>
+
+    <!-- Export output -->
+    <div id="export-area" class="hidden mt-4">
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="flex justify-between mb-2">
+          <h2 class="text-sm font-semibold text-gray-700">Markdown Export</h2>
+          <button onclick="copyMd()" class="text-xs text-indigo-600 hover:underline">Copy</button>
+        </div>
+        <textarea id="export-text" readonly rows="12"
+          class="w-full border border-gray-200 rounded-lg p-3 text-xs font-mono bg-gray-50 resize-none focus:outline-none"
+          aria-label="Exported markdown"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const KEY = "release-checklist-v1";
+
+    const defaultSections = [
+      { id: "code-review",    title: "Code Review",              items: ["All PRs reviewed and approved", "No unresolved comments", "Branch is up-to-date with main"] },
+      { id: "tests",          title: "Tests Passing",            items: ["Unit tests pass (CI green)", "Integration tests pass", "E2E tests pass", "Test coverage meets threshold"] },
+      { id: "documentation",  title: "Documentation Updated",    items: ["API docs updated", "CHANGELOG.md updated", "README reflects new features"] },
+      { id: "rollback",       title: "Rollback Plan Ready",      items: ["Rollback procedure documented", "Previous version artifact available", "Database migration is reversible"] },
+      { id: "stakeholders",   title: "Stakeholder Sign-off",     items: ["Product sign-off obtained", "QA sign-off obtained", "Security review complete"] },
+      { id: "env-config",     title: "Environment Config",       items: ["Environment variables set in production", "Secrets rotated / verified", "Feature flags configured", "Infrastructure scaled for release"] },
+    ];
+
+    let sections = [];
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    function loadState() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(KEY));
+        if (saved && Array.isArray(saved)) { sections = saved; return; }
+      } catch(e) {}
+      sections = defaultSections.map(s => ({
+        ...s,
+        items: s.items.map(text => ({ text, checked: false }))
+      }));
+    }
+
+    function saveState() { localStorage.setItem(KEY, JSON.stringify(sections)); }
+
+    function toggle(sIdx, iIdx) {
+      sections[sIdx].items[iIdx].checked = !sections[sIdx].items[iIdx].checked;
+      saveState();
+      updateProgress();
+      updateItemUI(sIdx, iIdx);
+    }
+
+    function updateItemUI(sIdx, iIdx) {
+      const item = sections[sIdx].items[iIdx];
+      const el = document.getElementById(`item-${sIdx}-${iIdx}`);
+      if (!el) return;
+      const label = el.querySelector("label");
+      const cb = el.querySelector("input[type=checkbox]");
+      cb.checked = item.checked;
+      label.className = `text-sm ${item.checked ? "line-through text-gray-400" : "text-gray-700"}`;
+    }
+
+    function updateProgress() {
+      let total = 0, done = 0;
+      sections.forEach(s => s.items.forEach(i => { total++; if (i.checked) done++; }));
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      document.getElementById("pct-label").textContent = pct + "%";
+      document.getElementById("progress-bar").style.width = pct + "%";
+      let msg = `${done} of ${total} items complete`;
+      if (pct === 100) { msg = "✅ All items checked — ready to deploy!"; }
+      else if (pct >= 75) { msg = "Almost there! " + msg; }
+      document.getElementById("status-msg").textContent = msg;
+    }
+
+    function renderSections() {
+      const container = document.getElementById("sections");
+      container.innerHTML = "";
+      const sel = document.getElementById("custom-section");
+      sel.innerHTML = "";
+      sections.forEach((s, sIdx) => {
+        // Section div
+        const sec = document.createElement("div");
+        sec.className = "bg-white rounded-xl shadow p-4";
+        const done = s.items.filter(i => i.checked).length;
+        sec.innerHTML = `
+          <div class="flex justify-between items-center mb-3">
+            <h2 class="text-sm font-semibold text-gray-700">${s.title}</h2>
+            <span class="text-xs text-gray-400">${done}/${s.items.length}</span>
+          </div>
+          <ul class="space-y-2" id="section-ul-${sIdx}" role="list"></ul>
+        `;
+        container.appendChild(sec);
+        const ul = sec.querySelector(`#section-ul-${sIdx}`);
+        s.items.forEach((item, iIdx) => {
+          const li = document.createElement("li");
+          li.id = `item-${sIdx}-${iIdx}`;
+          li.className = "flex items-center gap-2";
+          li.setAttribute("role", "listitem");
+          li.innerHTML = `
+            <input type="checkbox" id="cb-${sIdx}-${iIdx}" ${item.checked ? "checked" : ""}
+              class="accent-indigo-600 w-4 h-4 rounded"
+              onchange="toggle(${sIdx},${iIdx})"
+              aria-label="${esc(item.text)}" />
+            <label for="cb-${sIdx}-${iIdx}" class="text-sm ${item.checked ? "line-through text-gray-400" : "text-gray-700"} cursor-pointer">${esc(item.text)}</label>
+          `;
+          ul.appendChild(li);
+        });
+        // Section select option
+        const opt = document.createElement("option");
+        opt.value = sIdx;
+        opt.textContent = s.title;
+        sel.appendChild(opt);
+      });
+      updateProgress();
+    }
+
+    function addCustom() {
+      const sIdx = parseInt(document.getElementById("custom-section").value);
+      const text = document.getElementById("custom-text").value.trim();
+      if (!text) { alert("Enter item text."); return; }
+      sections[sIdx].items.push({ text, checked: false });
+      saveState();
+      renderSections();
+      document.getElementById("custom-text").value = "";
+    }
+
+    function resetAll() {
+      if (!confirm("Reset all checkboxes?")) return;
+      sections.forEach(s => s.items.forEach(i => i.checked = false));
+      saveState();
+      renderSections();
+    }
+
+    function exportMd() {
+      let md = `# Release Deployment Checklist\n\nDate: ${new Date().toISOString().split("T")[0]}\n\n`;
+      sections.forEach(s => {
+        md += `## ${s.title}\n\n`;
+        s.items.forEach(i => { md += `- [${i.checked ? "x" : " "}] ${i.text}\n`; });
+        md += "\n";
+      });
+      document.getElementById("export-text").value = md;
+      document.getElementById("export-area").classList.remove("hidden");
+      document.getElementById("export-area").scrollIntoView({ behavior: "smooth" });
+    }
+
+    function copyMd() {
+      navigator.clipboard.writeText(document.getElementById("export-text").value).then(() => alert("Copied!"));
+    }
+
+    loadState();
+    renderSections();
+  </script>
+</body>
+</html>
